@@ -1,74 +1,27 @@
 import os
 import pandas as pd
+import numpy as np
+import streamlit as st
 
-# Use current working directory instead of __file__
-script_dir = os.getcwd()
+# ------------------------
+# File Loading & Preprocessing
+# ------------------------
 
-# Build full paths
-un_path = os.path.join(script_dir, 'country_profile_variables.csv')
-happiness_path = os.path.join(script_dir, 'WHR2023.csv')
-
-# Read the CSV files
-un_df = pd.read_csv(un_path)
-happiness_df = pd.read_csv(happiness_path)
-
-# 1. Standardize column names
-un_df.rename(columns={
-    'country': 'Country'  # Normalize to match other dataset
-}, inplace=True)
-
-happiness_df.rename(columns={
-    'Country name': 'Country',
-    'Ladder score': 'Happiness Score'
-}, inplace=True)
-
-# 2. Get country sets
-un_countries = set(un_df['Country'])
-happy_countries = set(happiness_df['Country'])
-
-# 3. Find unmatched countries
-only_in_un = sorted(un_countries - happy_countries)
-only_in_happiness = sorted(happy_countries - un_countries)
-
-# 4. Merge datasets (inner join)
-merged_df = pd.merge(un_df, happiness_df, on='Country', how='inner')
-
-# 5. Save merged data
-merged_df.to_csv('merged_data.csv', index=False)
-
-# 6. Save unmatched countries
-unmatched_df = pd.DataFrame({
-    'Only in UN Dataset': pd.Series(only_in_un),
-    'Only in Happiness Dataset': pd.Series(only_in_happiness)
-})
-unmatched_df.to_csv('unmatched_countries.csv', index=False)
-
-# 7. Confirmation
-print("✅ Files saved:")
-print("- merged_data.csv")
-print("- unmatched_countries.csv")
-
-
-import pandas as pd
-import os
-
-# File paths
 script_dir = os.getcwd()
 un_path = os.path.join(script_dir, 'country_profile_variables.csv')
 happiness_path = os.path.join(script_dir, 'WHR2023.csv')
 
-# Load data
 un_df = pd.read_csv(un_path)
 happiness_df = pd.read_csv(happiness_path)
 
-# Rename columns for consistency
+# Standardize column names
 un_df.rename(columns={'country': 'Country'}, inplace=True)
 happiness_df.rename(columns={
     'Country name': 'Country',
     'Ladder score': 'Happiness Score'
 }, inplace=True)
 
-# Replace UN formal names with common names
+# Replace formal names with common names for consistency
 name_map = {
     'Viet Nam': 'Vietnam',
     'Bolivia (Plurinational State of)': 'Bolivia',
@@ -80,38 +33,47 @@ name_map = {
     'Republic of Korea': 'South Korea',
     'Venezuela (Bolivarian Republic of)': 'Venezuela'
 }
-
 un_df['Country'] = un_df['Country'].replace(name_map)
 
-# Merge on common names
+# Save unmatched country names for inspection
+un_countries = set(un_df['Country'])
+happy_countries = set(happiness_df['Country'])
+only_in_un = sorted(un_countries - happy_countries)
+only_in_happiness = sorted(happy_countries - un_countries)
+
+unmatched_df = pd.DataFrame({
+    'Only in UN Dataset': pd.Series(only_in_un),
+    'Only in Happiness Dataset': pd.Series(only_in_happiness)
+})
+unmatched_df.to_csv('unmatched_countries.csv', index=False)
+
+# Merge on cleaned country names
 merged_df = pd.merge(un_df, happiness_df, on='Country', how='inner')
-
-# Save result
 merged_df.to_csv('merged_data.csv', index=False)
-print("✅ Merged CSV saved as 'merged_data.csv' with common country names.")
+print("Merged CSV saved as 'merged_data.csv' with common country names.")
 
-
-import pandas as pd
-import streamlit as st
+# ------------------------
+# Streamlit App
+# ------------------------
 
 @st.cache_data
 def load_data():
     return pd.read_csv("merged_data.csv")
 
-# Setup
+# Setup Streamlit page
 st.set_page_config(layout="wide")
 df = load_data()
 
 st.title("🌍 Global Socioeconomic Explorer & Happiness Analysis")
 
-# Sidebar - Country selector
+# Sidebar - Select country
 countries = sorted(df['Country'].dropna().unique())
 selected_country = st.sidebar.selectbox("Select a Country", countries)
 
-# Filter data for selected country
+# Filter for selected country
 country_data = df[df['Country'] == selected_country]
 
-# Category-wise indicators (based on your actual columns)
+# Define categories and indicators
 categories = {
     "Demographic": [
         "Population in thousands (2017)",
@@ -153,16 +115,46 @@ categories = {
     ]
 }
 
-# Display data by category
+# Global statistics
+global_means = df.mean(numeric_only=True)
+global_stds = df.std(numeric_only=True)
+
+# Function to format value with colored label
+def format_value(val, mean, std):
+    try:
+        val = float(val)
+    except:
+        return str(val)
+
+    diff = val - mean
+    if abs(diff) < 0.1 * std:
+        return f"{val:.2f} (normal)"
+    elif diff >= std:
+        return f"<span style='color:green'><b>{val:.2f}</b> (very good)</span>"
+    elif diff >= 0.1 * std:
+        return f"<span style='color:green'>{val:.2f} (good)</span>"
+    elif diff <= -std:
+        return f"<span style='color:red'><b>{val:.2f}</b> (very bad)</span>"
+    elif diff <= -0.1 * std:
+        return f"<span style='color:red'>{val:.2f} (bad)</span>"
+    else:
+        return f"{val:.2f}"
+
+# Display all sections
 for section, cols in categories.items():
     with st.expander(f"{section} Indicators", expanded=False):
         available_cols = [col for col in cols if col in country_data.columns]
         if not available_cols:
             st.warning("No data available for this section.")
             continue
-        display_cols = ['Country'] + available_cols
-        df_display = country_data[display_cols].transpose().reset_index()
-        df_display.columns = ['Indicator', 'Value']
-        df_display['Value'] = df_display['Value'].astype(str)
 
-        st.dataframe(df_display, use_container_width=True)
+        st.markdown(f"### {selected_country}'s {section} Overview")
+        for col in available_cols:
+            val = country_data[col].values[0]
+            mean = global_means.get(col, None)
+            std = global_stds.get(col, None)
+            if mean is not None and std is not None:
+                formatted = format_value(val, mean, std)
+            else:
+                formatted = str(val)
+            st.markdown(f"<b>{col}:</b> {formatted}", unsafe_allow_html=True)
