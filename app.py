@@ -1,160 +1,112 @@
-import os
+import streamlit as st
 import pandas as pd
 import numpy as np
-import streamlit as st
+import altair as alt
+import seaborn as sns
+import matplotlib.pyplot as plt
 
-# ------------------------
-# File Loading & Preprocessing
-# ------------------------
+st.set_page_config(layout="wide")
 
-script_dir = os.getcwd()
-un_path = os.path.join(script_dir, 'country_profile_variables.csv')
-happiness_path = os.path.join(script_dir, 'WHR2023.csv')
+# --- THEME TOGGLE ---
+theme = st.sidebar.radio("Theme", ["Light", "Dark"])
+if theme == "Dark":
+    st.markdown("""
+        <style>
+        body {
+            background-color: #0e1117;
+            color: #f5f5f5;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+# --- LOAD DATA ---
+un_path = "country_profile_variables.csv"
+whr_path = "WHR2023.csv"
 
 un_df = pd.read_csv(un_path)
-happiness_df = pd.read_csv(happiness_path)
+whr_df = pd.read_csv(whr_path)
+whr_df.rename(columns={"Country name": "Country", "Ladder score": "Happiness Score"}, inplace=True)
 
-# Standardize column names
-un_df.rename(columns={'country': 'Country'}, inplace=True)
-happiness_df.rename(columns={
-    'Country name': 'Country',
-    'Ladder score': 'Happiness Score'
-}, inplace=True)
+# --- MERGE ---
+df = pd.merge(un_df, whr_df, on="Country")
 
-# Replace formal names with common names for consistency
-name_map = {
-    'Viet Nam': 'Vietnam',
-    'Bolivia (Plurinational State of)': 'Bolivia',
-    'Turkey': 'Turkiye',
-    'United States of America': 'United States',
-    'China, Hong Kong SAR': 'Hong Kong S.A.R. of China',
-    'Iran (Islamic Republic of)': 'Iran',
-    'Russian Federation': 'Russia',
-    'Republic of Korea': 'South Korea',
-    'Venezuela (Bolivarian Republic of)': 'Venezuela'
-}
-un_df['Country'] = un_df['Country'].replace(name_map)
-
-# Save unmatched country names for inspection
-un_countries = set(un_df['Country'])
-happy_countries = set(happiness_df['Country'])
-only_in_un = sorted(un_countries - happy_countries)
-only_in_happiness = sorted(happy_countries - un_countries)
-
-unmatched_df = pd.DataFrame({
-    'Only in UN Dataset': pd.Series(only_in_un),
-    'Only in Happiness Dataset': pd.Series(only_in_happiness)
-})
-unmatched_df.to_csv('unmatched_countries.csv', index=False)
-
-# Merge on cleaned country names
-merged_df = pd.merge(un_df, happiness_df, on='Country', how='inner')
-merged_df.to_csv('merged_data.csv', index=False)
-print("Merged CSV saved as 'merged_data.csv' with common country names.")
-
-# ------------------------
-# Streamlit App
-# ------------------------
-
-@st.cache_data
-def load_data():
-    return pd.read_csv("merged_data.csv")
-
-# Setup Streamlit page
-st.set_page_config(layout="wide")
-df = load_data()
-
-st.title("🌍 Global Socioeconomic Explorer & Happiness Analysis")
-
-# Sidebar - Select country
-countries = sorted(df['Country'].dropna().unique())
+# --- SIDEBAR ---
+st.sidebar.title("Country Insights")
+countries = sorted(df['Country'].unique())
 selected_country = st.sidebar.selectbox("Select a Country", countries)
+show_interpretation = st.sidebar.checkbox("Show Interpretations", value=True)
 
-# Filter for selected country
-country_data = df[df['Country'] == selected_country]
+# --- LEGEND ---
+with st.expander("Color Legend"):
+    st.markdown("""
+    - 🟩 **Green**: Above global average (Good/High)
+    - 🟨 **Yellow**: Around average (Neutral)
+    - 🟥 **Red**: Below average (Needs Improvement)
+    """)
 
-# Define categories and indicators
-categories = {
-    "Demographic": [
-        "Population in thousands (2017)",
-        "Population density (per km2, 2017)",
-        "Sex ratio (m per 100 f, 2017)",
-        "Population growth rate (average annual %)",
-        "Urban population (% of total population)"
-    ],
-    "Economy": [
-        "GDP: Gross domestic product (million current US$)",
-        "GDP growth rate (annual %, const. 2005 prices)",
-        "GDP per capita (current US$)",
-        "Unemployment (% of labour force)",
-        "Labour force participation (female/male pop. %)"
-    ],
-    "Sectoral Breakdown": [
-        "Economy: Agriculture (% of GVA)",
-        "Economy: Industry (% of GVA)",
-        "Economy: Services and other activity (% of GVA)",
-        "Employment: Agriculture (% of employed)",
-        "Employment: Industry (% of employed)",
-        "Employment: Services (% of employed)"
-    ],
-    "Trade": [
-        "International trade: Exports (million US$)",
-        "International trade: Imports (million US$)",
-        "International trade: Balance (million US$)",
-        "Balance of payments, current account (million US$)"
-    ],
-    "Agriculture & Food": [
-        "Agricultural production index (2004-2006=100)",
-        "Food production index (2004-2006=100)"
-    ],
-    "Happiness Contributors": [
-        "Explained by: Freedom to make life choices",
-        "Explained by: Generosity",
-        "Explained by: Perceptions of corruption",
-        "Dystopia + residual"
-    ]
-}
+# --- COUNTRY DATA ---
+country_data = df[df['Country'] == selected_country].squeeze()
 
-# Global statistics
-global_means = df.mean(numeric_only=True)
-global_stds = df.std(numeric_only=True)
+st.title("🌍 Wellbeing Atlas: Socioeconomic & Happiness Insights")
+st.header(f"📌 Overview for {selected_country}")
 
-# Function to format value with colored label
-def format_value(val, mean, std):
+# --- INDICATORS TO SHOW ---
+indicators = [
+    'GDP per capita (current US$)',
+    'Economy: Agriculture (% of GVA)',
+    'Economy: Industry (% of GVA)',
+    'Economy: Services (% of GVA)',
+    'Population density (per km2, 2017)',
+    'Sex ratio (m per 100 f, 2017)',
+    'Life expectancy at birth (years)',
+    'Happiness Score'
+]
+
+# --- METRICS WITH COLOR & BAR ---
+st.subheader("📊 Country Performance vs Global Average")
+
+for ind in indicators:
+    if ind not in df.columns or pd.isna(country_data[ind]):
+        continue
+    val = country_data[ind]
+    mean = df[ind].mean()
     try:
-        val = float(val)
+        float_val = float(val)
+        color = "🟩"
+        if float_val < mean * 0.9:
+            color = "🟥"
+        elif float_val < mean * 1.1:
+            color = "🟨"
+        formatted = f"{float_val:.2f}"
+        progress_val = max(0.0, min(float_val / (2 * mean), 1.0))
+        st.progress(progress_val, text=f"{ind}: {color} {formatted} | Global Avg: {mean:.2f}")
+        if show_interpretation:
+            st.markdown(f"**{ind}** → {color} {'High' if color=='🟩' else 'Low' if color=='🟥' else 'Neutral'}")
     except:
-        return str(val)
+        st.write(f"{ind}: {val}")
 
-    diff = val - mean
-    if abs(diff) < 0.1 * std:
-        return f"{val:.2f} (normal)"
-    elif diff >= std:
-        return f"<span style='color:green'><b>{val:.2f}</b> (very good)</span>"
-    elif diff >= 0.1 * std:
-        return f"<span style='color:green'>{val:.2f} (good)</span>"
-    elif diff <= -std:
-        return f"<span style='color:red'><b>{val:.2f}</b> (very bad)</span>"
-    elif diff <= -0.1 * std:
-        return f"<span style='color:red'>{val:.2f} (bad)</span>"
-    else:
-        return f"{val:.2f}"
+# --- CORRELATION HEATMAP ---
+st.subheader("📈 Correlation Between Features")
+num_df = df[indicators].dropna()
+corr = num_df.corr()
+fig, ax = plt.subplots(figsize=(10, 6))
+sns.heatmap(corr, annot=True, cmap='coolwarm', ax=ax)
+st.pyplot(fig)
 
-# Display all sections
-for section, cols in categories.items():
-    with st.expander(f"{section} Indicators", expanded=False):
-        available_cols = [col for col in cols if col in country_data.columns]
-        if not available_cols:
-            st.warning("No data available for this section.")
-            continue
+# --- MULTI-FEATURE SCATTER ---
+st.subheader("🧪 Happiness vs Multiple Indicators")
+selected_features = st.multiselect("Select indicators to compare with Happiness Score", [i for i in indicators if i != 'Happiness Score'], default=['GDP per capita (current US$)', 'Life expectancy at birth (years)'])
 
-        st.markdown(f"### {selected_country}'s {section} Overview")
-        for col in available_cols:
-            val = country_data[col].values[0]
-            mean = global_means.get(col, None)
-            std = global_stds.get(col, None)
-            if mean is not None and std is not None:
-                formatted = format_value(val, mean, std)
-            else:
-                formatted = str(val)
-            st.markdown(f"<b>{col}:</b> {formatted}", unsafe_allow_html=True)
+if selected_features:
+    melted = df[['Country', 'Happiness Score'] + selected_features].melt(id_vars=['Country', 'Happiness Score'], var_name='Feature', value_name='Value')
+    chart = alt.Chart(melted.dropna()).mark_circle(size=60).encode(
+        x=alt.X('Value:Q', title=None),
+        y='Happiness Score:Q',
+        color='Feature:N',
+        tooltip=['Country', 'Feature', 'Value', 'Happiness Score']
+    ).properties(
+        width=250, height=250
+    ).facet(
+        facet='Feature:N', columns=2
+    )
+    st.altair_chart(chart, use_container_width=True)
