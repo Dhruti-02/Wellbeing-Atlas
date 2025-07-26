@@ -154,3 +154,27 @@ if selected_features:
     st.altair_chart(chart, use_container_width=True)
 else:
     st.info("Select at least one feature to display scatter plots.")
+
+# --- Calculate global average happiness ---
+global_avg_happiness = df['Happiness Score'].mean()
+
+# --- Get selected country happiness score ---
+country_happiness = country_data['Happiness Score']
+
+# --- Plot comparison ---
+fig, ax = plt.subplots(figsize=(6, 3.5))
+bars = ax.bar(['Global Avg', selected_country], [global_avg_happiness, country_happiness],
+              color=['gray', 'royalblue'])
+
+# Annotate values on bars
+for bar in bars:
+    height = bar.get_height()
+    ax.text(bar.get_x() + bar.get_width() / 2, height + 0.05,
+            f'{height:.2f}', ha='center', va='bottom', fontsize=10)
+    
+color = 'green' if country_happiness >= global_avg_happiness else 'red'
+bars[1].set_color(color)
+
+ax.set_ylabel("Happiness Score")
+ax.set_title("Happiness Score: Country vs Global Average")
+st.pyplot(fig)
