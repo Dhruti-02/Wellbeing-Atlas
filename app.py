@@ -7,17 +7,27 @@ import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide")
 
-# --- THEME TOGGLE ---
+# --- THEME SELECTION ---
 theme = st.sidebar.radio("Theme", ["Light", "Dark"])
-if theme == "Dark":
-    st.markdown("""
-        <style>
-        body {
-            background-color: #0e1117;
-            color: #f5f5f5;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+is_dark = theme == "Dark"
+
+# --- Set base colors ---
+bg_color = "#0e1117" if is_dark else "#ffffff"
+text_color = "#f5f5f5" if is_dark else "#000000"
+highlight_color = "#1f77b4" if is_dark else "#007acc"
+
+# --- Apply styling with HTML (limited effect) ---
+st.markdown(f"""
+    <style>
+    .reportview-container {{
+        background-color: {bg_color};
+        color: {text_color};
+    }}
+    .sidebar .sidebar-content {{
+        background-color: {bg_color};
+    }}
+    </style>
+""", unsafe_allow_html=True)
 
 # --- LOAD DATA ---
 un_path = "country_profile_variables.csv"
