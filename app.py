@@ -87,7 +87,11 @@ for ind in indicators:
     if pd.isna(val):
         continue
 
-    mean = df[ind].mean()
+    # Convert the indicator column to numeric, ignoring invalid values
+    numeric_values = pd.to_numeric(df[ind], errors="coerce")
+
+    # Calculate the mean of valid numeric values
+    mean = numeric_values.mean()
     try:
         float_val = float(val)
         if float_val < mean * 0.9:
