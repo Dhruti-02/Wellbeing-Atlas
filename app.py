@@ -114,6 +114,7 @@ for ind in indicators:
 st.subheader("📈 Correlation Between Features")
 num_df = df[[i for i in indicators if i in df.columns]].dropna()
 if not num_df.empty:
+    num_df = df.apply(pd.to_numeric, errors="coerce")
     corr = num_df.corr()
     fig, ax = plt.subplots(figsize=(10, 6))
     sns.heatmap(corr, annot=True, cmap='coolwarm', ax=ax)
